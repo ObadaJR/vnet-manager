@@ -56,11 +56,11 @@ class ValidateConfig:
         """
         Run all validation functions
         """
-        self._all_ok = True
         self.validate_switch_config()
         self.validate_machine_config()
+        self.validate_unique_macs()
+        self.validate_unique_ip_addresses()
         if "veths" in self.config:
-            self.validate_veth_config()
 
     def validate_switch_config(self):
         """
@@ -342,6 +342,85 @@ class ValidateConfig:
                         logger.error(f"Undefined slave interface {slave} assigned to bridge {br_name} on machine {machine}")
                         self._all_ok = False
 
+       def validate_unique_macs(self):
+        """
+        Validates that every explicitly configured MAC address is unique across all machines.
+        Interfaces without a MAC in the config get a random one assigned, those are not checked here.
+        """
+        self._validators_ran += 1
+        macs = dict()
+        machines = self.config.get("machines")
+        if not isinstance(machines, dict):
+            return
+        for machine, values in machines.items():
+            interfaces = values.get("interfaces")
+            if not isinstance(interfaces, dict):
+                continue
+            for int_name, int_vals in interfaces.items():
+                mac = int_vals.get("mac")
+                if not mac:
+                    continue
+                normalized = mac.lower()
+                if normalized in macs:
+                    logger.error(
+                        f"MAC address {mac} on interface {int_name} of machine {machine} is already in use by "
+                        f"{macs[normalized]}{self.default_message}"
+                    )
+                    self._all_ok = False
+                else:
+                    macs[normalized] = f"interface {int_name} on machine {machine}"
+
+    def validate_unique_ip_addresses(self):
+        """
+        Validates that every explicitly configured IP address is unique across all machines.
+        This covers interface addresses, VLAN interface addresses and bridge addresses.
+        """
+        self._validators_ran += 1
+        addresses = dict()
+        machines = self.config.get("machines")
+        if not isinstance(machines, dict):
+            return
+        for machine, values in machines.items():
+            interfaces = values.get("interfaces")
+            if isinstance(interfaces, dict):
+                for int_name, int_vals in interfaces.items():
+                    for proto in ("ipv4", "ipv6"):
+                        if proto in int_vals:
+                            self._check_unique_address(
+                                addresses, int_vals[proto], f"interface {int_name} on machine {machine}"
+                            )
+            vlans = values.get("vlans")
+            if isinstance(vlans, dict):
+                for vlan_name, vlan_vals in vlans.items():
+                    for address in vlan_vals.get("addresses", []):
+                        self._check_unique_address(addresses, address, f"VLAN {vlan_name} on machine {machine}")
+            bridges = values.get("bridges")
+            if isinstance(bridges, dict):
+                for br_name, br_vals in bridges.items():
+                    for proto in ("ipv4", "ipv6"):
+                        if proto in br_vals:
+                            self._check_unique_address(
+                                addresses, br_vals[proto], f"bridge {br_name} on machine {machine}"
+                            )
+
+    def _check_unique_address(self, addresses: dict, address: str, location: str):
+        """
+        Registers an IP address and logs an error if it was already registered at another location
+        :param dict addresses: Already registered addresses as keys with their locations as values
+        :param str address: The IP address (with or without prefix length) to register
+        :param str location: Human readable description of where this address is configured
+        """
+        try:
+            parsed = ip_interface(address)
+        except ValueError:
+            # Malformed addresses are already reported by the other validators
+            return
+        if parsed.ip in addresses:
+            logger.error(f"IP address {address} on {location} is already in use by {addresses[parsed.ip]}{self.default_message}")
+            self._all_ok = False
+        else:
+            addresses[parsed.ip] = location
+    
     def validate_veth_config(self):
         """
         Validates the veth config if present
