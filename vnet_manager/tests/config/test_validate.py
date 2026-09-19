@@ -13,6 +13,10 @@ class TestValidateConfigClass(VNetTestCase):
         self.validator.validate_switch_config = self.switch_config
         self.machine_config = Mock()
         self.validator.validate_machine_config = self.machine_config
+        self.unique_macs = Mock()
+        self.validator.validate_unique_macs = self.unique_macs
+        self.unique_ips = Mock()
+        self.validator.validate_unique_ip_addresses = self.unique_ips
         self.veth_config = Mock()
         self.validator.validate_veth_config = self.veth_config
 
@@ -538,3 +542,102 @@ class TestValidateConfigValidateMachineBridgeConfig(VNetTestCase):
         self.validator.validate_machine_bridge_config(self.machine)
         self.assertFalse(self.validator.config_validation_successful)
         self.logger.error.assert_called_once_with(f"Undefined slave interface {iface} assigned to bridge br1 on machine {self.machine}")
+
+
+class TestValidateConfigValidateUniqueMacs(VNetTestCase):
+    def setUp(self) -> None:
+        self.config = {
+            "switches": 1,
+            "machines": {
+                "host1": {"type": "host", "interfaces": {"eth0": {"mac": "aa:00:00:00:00:01", "bridge": 0}}},
+                "host2": {"type": "host", "interfaces": {"eth0": {"mac": "aa:00:00:00:00:02", "bridge": 0}}},
+            },
+        }
+        self.validator = ValidateConfig(deepcopy(self.config))
+        self.logger = self.set_up_patch("vnet_manager.config.validate.logger")
+
+    def test_validate_unique_macs_ok_with_unique_macs(self):
+        self.validator.validate_unique_macs()
+        self.assertTrue(self.validator.config_validation_successful)
+        self.assertFalse(self.logger.error.called)
+
+    def test_validate_unique_macs_fails_on_duplicate_mac_across_machines(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["mac"] = "aa:00:00:00:00:01"
+        self.validator.validate_unique_macs()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_macs_fails_on_duplicate_mac_case_insensitive(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["mac"] = "AA:00:00:00:00:01"
+        self.validator.validate_unique_macs()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_macs_fails_on_duplicate_mac_on_same_machine(self):
+        self.validator.config["machines"]["host1"]["interfaces"]["eth1"] = {"mac": "aa:00:00:00:00:01", "bridge": 0}
+        self.validator.validate_unique_macs()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_macs_ignores_interfaces_without_mac(self):
+        del self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["mac"]
+        self.validator.validate_unique_macs()
+        self.assertTrue(self.validator.config_validation_successful)
+
+    def test_validate_marks_config_not_ok_on_duplicate_mac(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["mac"] = "aa:00:00:00:00:01"
+        self.validator.validate()
+        self.assertFalse(self.validator.config_validation_successful)
+
+
+class TestValidateConfigValidateUniqueIPAddresses(VNetTestCase):
+    def setUp(self) -> None:
+        self.config = {
+            "switches": 1,
+            "machines": {
+                "host1": {
+                    "type": "host",
+                    "interfaces": {"eth0": {"ipv4": "10.0.0.1/24", "ipv6": "fd00::1/64", "mac": "aa:00:00:00:00:01", "bridge": 0}},
+                },
+                "host2": {
+                    "type": "host",
+                    "interfaces": {"eth0": {"ipv4": "10.0.0.2/24", "ipv6": "fd00::2/64", "mac": "aa:00:00:00:00:02", "bridge": 0}},
+                },
+            },
+        }
+        self.validator = ValidateConfig(deepcopy(self.config))
+        self.logger = self.set_up_patch("vnet_manager.config.validate.logger")
+
+    def test_validate_unique_ip_addresses_ok_with_unique_addresses(self):
+        self.validator.validate_unique_ip_addresses()
+        self.assertTrue(self.validator.config_validation_successful)
+        self.assertFalse(self.logger.error.called)
+
+    def test_validate_unique_ip_addresses_fails_on_duplicate_ipv4(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["ipv4"] = "10.0.0.1/24"
+        self.validator.validate_unique_ip_addresses()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_ip_addresses_fails_on_duplicate_ipv6(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["ipv6"] = "fd00::1/64"
+        self.validator.validate_unique_ip_addresses()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_ip_addresses_fails_on_duplicate_ipv4_with_different_prefix(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["ipv4"] = "10.0.0.1/25"
+        self.validator.validate_unique_ip_addresses()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_ip_addresses_fails_on_duplicate_in_vlan_addresses(self):
+        self.validator.config["machines"]["host1"]["vlans"] = {"vlan.10": {"id": 10, "link": "eth0", "addresses": ["10.0.0.2/24"]}}
+        self.validator.validate_unique_ip_addresses()
+        self.assertFalse(self.validator.config_validation_successful)
+        self.assertTrue(self.logger.error.called)
+
+    def test_validate_unique_ip_addresses_ignores_malformed_addresses(self):
+        self.validator.config["machines"]["host2"]["interfaces"]["eth0"]["ipv4"] = "not-an-ip"
+        self.validator.validate_unique_ip_addresses()
+        self.assertTrue(self.validator.config_validation_successful)
