@@ -111,7 +111,13 @@ class ActionManager:
         show_vnet_interface_status(self.config)
         if "veths" in self.config:
             show_vnet_veth_interface_status(self.config)
-
+    def preform_validate_action(self):
+        """
+        Validates a config file. The config has already been fully validated by the execute() -> parse_config()
+        flow, if we get here the config is OK. The exit code of the action reflects the validation result.
+        """
+        logger.info("Config OK, all validation checks passed")
+        return EX_OK
     def preform_start_action(self):
         bring_up_vnet_interfaces(self.config, sniffer=self.sniffer, pcap_dir=self.pcap_dir)
         machine_op.change_machine_status(self.config, machines=self.machines, status="start")
