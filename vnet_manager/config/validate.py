@@ -52,7 +52,7 @@ class ValidateConfig:
         """
         return self._validators_ran
 
- def validate(self):
+     def validate(self):
         """
         Run all validation functions
         """
