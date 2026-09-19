@@ -52,7 +52,7 @@ class ValidateConfig:
         """
         return self._validators_ran
 
-     def validate(self):
+    def validate(self):
         """
         Run all validation functions
         """
@@ -343,7 +343,7 @@ class ValidateConfig:
                         logger.error(f"Undefined slave interface {slave} assigned to bridge {br_name} on machine {machine}")
                         self._all_ok = False
 
-       def validate_unique_macs(self):
+    def validate_unique_macs(self):
         """
         Validates that every explicitly configured MAC address is unique across all machines.
         Interfaces without a MAC in the config get a random one assigned, those are not checked here.
