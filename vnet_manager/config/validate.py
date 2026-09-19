@@ -52,7 +52,7 @@ class ValidateConfig:
         """
         return self._validators_ran
 
-    def validate(self):
+ def validate(self):
         """
         Run all validation functions
         """
@@ -61,6 +61,7 @@ class ValidateConfig:
         self.validate_unique_macs()
         self.validate_unique_ip_addresses()
         if "veths" in self.config:
+            self.validate_veth_config()
 
     def validate_switch_config(self):
         """
